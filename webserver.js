@@ -5,7 +5,8 @@
 //const localOnly = true;
 const localOnly = false;
 // the port on which the server will be started
-var port = 7077;
+//var port = 7077;
+var port = process.env.PORT || 7077;
 
 // this is for switching between the standard and the new theme mode for displaying the views
 let themes = false;
