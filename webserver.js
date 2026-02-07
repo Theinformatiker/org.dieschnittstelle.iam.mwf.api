@@ -8,6 +8,8 @@ const localOnly = false;
 //var port = 7077;
 var port = process.env.PORT || 7077;
 
+
+
 // this is for switching between the standard and the new theme mode for displaying the views
 let themes = false;
 
@@ -28,7 +30,9 @@ var server;
 // the HTTPS server
 var httpsServer;
 // the ip address
-var ip = localOnly ? "127.0.0.1" : utils.getIPAddress();
+//var ip = localOnly ? "127.0.0.1" : utils.getIPAddress();
+var ip = "0.0.0.0";
+
 // the segment for identifying the rest api
 var apiref = "api";
 
