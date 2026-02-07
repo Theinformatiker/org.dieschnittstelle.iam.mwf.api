@@ -282,71 +282,24 @@ var application = function(req, res) {
  ***********************************************************************************/
 function handleRequest(req,res,path,tenant) {
 
-        // ================= API ROUTING =================
-    if (path === "mediaitems" && req.method === "GET") {
-        handleGetMedia(res);
-        return;
-    }
+    // ================= OUR CLOUD API =================
+    // wichtig: vor http2mdb abfangen!
 
-    if (path === "mediaitems" && req.method === "POST") {
-        handlePostMedia(req, res);
-        return;
+    if (path === "/api/mediaitems" || path === "mediaitems") {
+
+        if (req.method === "GET") {
+            handleGetMedia(res);
+            return;
+        }
+
+        if (req.method === "POST") {
+            handlePostMedia(req, res);
+            return;
+        }
     }
 
     console.log((tenant ? tenant.name : "") + ".onHttpRequest(): trying to serve path: " + path);
 
-    // check whether we have an api call or need to serve a file
-    if (path.indexOf("/http2mdb/") == 0 && apiref != "http2mdb") {
-        console.error((tenant ? tenant.name : "") + ".onHttpRequest(): ERROR: legacy api prefix http2mdb is being used, but prefix is set to: " + apiref + "!");
-        res.writeHead(404);
-        res.end();
-    } else if (path.indexOf("/available") == 0) {
-        console.log((tenant ? tenant.name : "") + ".onHttpRequest(): received an availability request, respond with success");
-        res.writeHead(204);
-        res.end();
-    }
-    else if (path.indexOf("/" + apiref + "/") == 0) {
-        console.log((tenant ? tenant.name : "") + ".onHttpRequest(): got a call to the rest api. Will continue processing there...");
-
-        // MULTITENANT: create a new instance of the api with the tenant name for each api request - this solution will survive, e.g., db restarts
-        // note that we use the tenant name to also hide the tenant id at the level of the database (it is only passed for processing multipart requests)
-        var tenantCRUDImpl = tenant ? new http2mdb.CRUDImpl(tenant) : new http2mdb.CRUDImpl();
-
-        // we remove the  apiref prefix from the path here
-        path = utils.replaceWith(path,"/" + apiref + "/","");
-
-        tenantCRUDImpl.processRequest(req, res, apiref, path);
-    } else {
-        if (path.length > 1 && path.indexOf("%7D%7D") == path.length - 6 || (path.length == 7 && path.includes("/%7B%7B"))) {
-            console.warn((tenant ? tenant.name : "") + ".onHttpRequest(): path seems to be a template filling expression. Will not deliver anything.");
-            res.writeHead(204);
-            res.end();
-        }
-        else if (path.length > 1 && path.indexOf("favicon.ico") != -1) {
-            console.warn((tenant ? tenant.name : "") + ".onHttpRequest(): request tries to access unavailable favicon.ico. Will not deliver anything.");
-            res.writeHead(404);
-            res.end();
-        }
-        else {
-            if (path == '/') {
-                // if the root is accessed we serve the main html document
-                path = themes ? "app-with-theme.html" : "app.html";
-            }
-            else {
-                // we need to consider that the path may be url encoded, e.g. in case a filename contains blanks
-                path = decodeURI(path);
-            }
-
-            // here we distinguish between uploaded content and other static resources (in order to allow for a different implementation of serveStaticResource(), e.g. be accessing some external file server
-            if (path.startsWith("/content")) {
-                serveUploadedContent(req,res,path,tenant);
-            }
-            else {
-                serveStaticResource(req,res,path,tenant);
-            }
-        }
-    }
-}
 
 function serveUploadedContent(req,res,path,tenant) {
     console.log((tenant ? tenant.name : "") + ".onHttpRequest(): serve uploaded content: " + path);
