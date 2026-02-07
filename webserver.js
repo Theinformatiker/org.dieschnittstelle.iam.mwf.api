@@ -282,10 +282,8 @@ var application = function(req, res) {
  ***********************************************************************************/
 function handleRequest(req,res,path,tenant) {
 
-    // ================= OUR CLOUD API =================
-    // wichtig: vor http2mdb abfangen!
-
-    if (path === "/api/mediaitems" || path === "mediaitems") {
+    // ================= CUSTOM API =================
+    if (path === "/api/mediaitems") {
 
         if (req.method === "GET") {
             handleGetMedia(res);
@@ -293,12 +291,32 @@ function handleRequest(req,res,path,tenant) {
         }
 
         if (req.method === "POST") {
-            handlePostMedia(req, res);
+            handlePostMedia(req,res);
             return;
         }
     }
 
-    console.log((tenant ? tenant.name : "") + ".onHttpRequest(): trying to serve path: " + path);
+    console.log(".onHttpRequest(): trying to serve path: " + path);
+
+
+    // ========= DISABLE http2mdb =========
+    // (WICHTIG!)
+    // nichts mehr hier
+
+
+    // ================= STATIC =================
+    if (path == '/') {
+        path = themes ? "app-with-theme.html" : "app.html";
+    } else {
+        path = decodeURI(path);
+    }
+
+    if (path.startsWith("/content")) {
+        serveUploadedContent(req,res,path,tenant);
+    } else {
+        serveStaticResource(req,res,path,tenant);
+    }
+}
 
 
 function serveUploadedContent(req,res,path,tenant) {
