@@ -1,6 +1,77 @@
 /*
  * originally taken from http://jmesnil.net/weblog/2010/11/24/html5-web-application-for-iphone-and-ipad-with-node-js/
  */
+const { MongoClient } = require("mongodb");
+
+const uri = "mongodb+srv://mediauser:mediauser123@cluster0.m8qxa.mongodb.net/?appName=Cluster0";
+const client = new MongoClient(uri);
+
+let db;
+
+async function connectDB() {
+  try {
+    await client.connect();
+    db = client.db("mediaapp"); // DB Name
+    console.log("✅ MongoDB verbunden");
+  } catch (err) {
+    console.error("❌ MongoDB Fehler:", err);
+  }
+}
+
+connectDB();
+
+// =====================================
+// MEDIA ITEMS API
+// =====================================
+
+// GET LIST
+/*
+async function handleGetMedia(res) {
+    const items = await db.collection("media").find().toArray();
+
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ data: items }));
+}
+*/
+async function handleGetMedia(res) {
+    try {
+        const items = await db.collection("media").find().toArray();
+
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ data: items }));
+
+    } catch(err) {
+        console.error(err);
+        res.writeHead(500);
+        res.end("DB Error");
+    }
+}
+
+// POST SAVE
+async function handlePostMedia(req, res) {
+
+    let body = "";
+
+    req.on("data", chunk => body += chunk);
+
+    req.on("end", async () => {
+
+        const item = JSON.parse(body);
+
+        await db.collection("media").insertOne(item);
+
+        res.writeHead(200);
+        res.end("OK");
+    });
+}
+
+async function testInsert() {
+  const col = db.collection("test");
+  await col.insertOne({ hello: "world" });
+  console.log("✅ Test gespeichert");
+}
+
+setTimeout(testInsert, 3000);
 
 //const localOnly = true;
 const localOnly = false;
@@ -208,6 +279,17 @@ var application = function(req, res) {
  * main request handling branching between api request and static resource requests
  ***********************************************************************************/
 function handleRequest(req,res,path,tenant) {
+
+        // ================= API ROUTING =================
+    if (path === "mediaitems" && req.method === "GET") {
+        handleGetMedia(res);
+        return;
+    }
+
+    if (path === "mediaitems" && req.method === "POST") {
+        handlePostMedia(req, res);
+        return;
+    }
 
     console.log((tenant ? tenant.name : "") + ".onHttpRequest(): trying to serve path: " + path);
 
