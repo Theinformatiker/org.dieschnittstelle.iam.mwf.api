@@ -280,10 +280,14 @@ var application = function(req, res) {
 /***********************************************************************************
  * main request handling branching between api request and static resource requests
  ***********************************************************************************/
-function handleRequest(req,res,path,tenant) {
+function handleRequest(req, res, path, tenant) {
 
-    // ================= CUSTOM API =================
-    if (path === "/api/mediaitems") {
+    console.log(".onHttpRequest(): trying to serve path:", path);
+
+    // =====================================================
+    // ✅ CUSTOM CLOUD API — PRIORITY ROUTING
+    // =====================================================
+    if (path.startsWith("/api/mediaitems")) {
 
         if (req.method === "GET") {
             handleGetMedia(res);
@@ -291,32 +295,43 @@ function handleRequest(req,res,path,tenant) {
         }
 
         if (req.method === "POST") {
-            handlePostMedia(req,res);
+            handlePostMedia(req, res);
             return;
         }
+
+        // Methode nicht erlaubt
+        res.writeHead(405);
+        res.end();
+        return;
     }
 
-    console.log(".onHttpRequest(): trying to serve path: " + path);
+
+    // =====================================================
+    // ❌ http2mdb KOMPLETT DEAKTIVIERT
+    // (NICHT WIEDER EINFÜGEN)
+    // =====================================================
 
 
-    // ========= DISABLE http2mdb =========
-    // (WICHTIG!)
-    // nichts mehr hier
+    // =====================================================
+    // STATIC FILE DELIVERY
+    // =====================================================
 
-
-    // ================= STATIC =================
-    if (path == '/') {
+    if (path === "/") {
         path = themes ? "app-with-theme.html" : "app.html";
     } else {
         path = decodeURI(path);
     }
 
+    // Uploaded Content
     if (path.startsWith("/content")) {
-        serveUploadedContent(req,res,path,tenant);
-    } else {
-        serveStaticResource(req,res,path,tenant);
+        serveUploadedContent(req, res, path, tenant);
+        return;
     }
+
+    // Normale statische Dateien
+    serveStaticResource(req, res, path, tenant);
 }
+
 
 
 function serveUploadedContent(req,res,path,tenant) {
