@@ -2,7 +2,8 @@
  * originally taken from http://jmesnil.net/weblog/2010/11/24/html5-web-application-for-iphone-and-ipad-with-node-js/
  */
 
-const localOnly = true;
+//const localOnly = true;
+const localOnly = false;
 // the port on which the server will be started
 var port = 7077;
 
@@ -38,8 +39,8 @@ var apiref = "api";
 var httpsEnabled = false;
 var localPassphrase = null;
 
-const apiOnly = true;
-
+//const apiOnly = true;
+const apiOnly = false;
 // multitenant settings
 var multitenantsEnabled = false;
 
