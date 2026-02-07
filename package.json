@@ -14,7 +14,7 @@
   "dependencies": {
     "formidable": "^1.0.14",
     "mime": "^3.0.0",
-    "mongodb": "^4.9.0",
+    "mongodb": "^4.17.2",
     "node-fetch": "^2.6.1"
   }
 }
