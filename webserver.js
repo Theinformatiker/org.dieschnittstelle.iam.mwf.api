@@ -4,7 +4,7 @@
 const { MongoClient } = require("mongodb");
 
 //const uri = "mongodb+srv://mediauser:mediauser123@cluster0.m8qxa.mongodb.net/?appName=Cluster0";
-const uri = process.env.MONGO_URI;
+const uri = process.env.MONGO_URI || "mongodb+srv://mediauser:mediauser123@cluster0.m8qxa.mongodb.net/?retryWrites=true&w=majority";
 
 const client = new MongoClient(uri);
 
