@@ -34,18 +34,29 @@ async function handleGetMedia(res) {
   }
 }
 
-async function handlePostMedia(req, res) {
+aasync function handlePostMedia(req, res) {
   let body = "";
   req.on("data", (c) => (body += c));
   req.on("end", async () => {
     try {
       if (!db) throw new Error("Datenbankverbindung fehlt");
       const item = JSON.parse(body);
-      const result = await db.collection("media").insertOne(item);
+
+      // 🛠️ FIX: Duplikate verhindern!
+      // Wir suchen nach dem Eintrag mit derselben Bild-URL ('src').
+      const filter = { src: item.src };
       
-      console.log("✅ Metadaten gespeichert:", result.insertedId);
+      // Wir aktualisieren die Daten ($set)
+      const updateDoc = { $set: item };
+      
+      // upsert: true bedeutet: Update wenn gefunden, sonst Insert (Neu anlegen)
+      const result = await db.collection("media").updateOne(filter, updateDoc, { upsert: true });
+      
+      console.log("✅ Metadaten aktualisiert/gespeichert");
+      
       res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
-      res.end(JSON.stringify({ ok: true, id: result.insertedId }));
+      res.end(JSON.stringify({ ok: true }));
+
     } catch (e) {
       console.error("❌ POST Fehler:", e.message);
       res.writeHead(500, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
