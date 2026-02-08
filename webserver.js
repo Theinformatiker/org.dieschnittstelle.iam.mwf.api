@@ -1,518 +1,167 @@
 /*
- * originally taken from http://jmesnil.net/weblog/2010/11/24/html5-web-application-for-iphone-and-ipad-with-node-js/
+ * CLEAN CLOUD VERSION — Korrigierte Fassung mit Start-Sequenz
  */
-const { MongoClient } = require("mongodb");
 
-//const uri = "mongodb+srv://mediauser:mediauser123@cluster0.m8qxa.mongodb.net/?appName=Cluster0";
-const uri = process.env.MONGO_URI || "mongodb+srv://mediauser:mediauser123@cluster0.m8qxa.mongodb.net/?retryWrites=true&w=majority";
+const { MongoClient } = require("mongodb");
+const http = require("http");
+const url = require("url");
+const fs = require("fs");
+const mime = require("mime");
+const { pipeline } = require("stream");
+
+// ===============================
+// MongoDB Cloud
+// ===============================
+const uri =
+  process.env.MONGO_URI ||
+  "mongodb+srv://mediauser:mediauser123@cluster0.m8qxa.mongodb.net/?retryWrites=true&w=majority";
 
 const client = new MongoClient(uri);
-
 let db;
 
-async function connectDB() {
+// ===============================
+// MEDIA API
+// ===============================
+async function handleGetMedia(res) {
   try {
-    await client.connect();
-    db = client.db("mediaapp"); // DB Name
-    console.log("✅ MongoDB verbunden");
-  } catch (err) {
-    console.error("❌ MongoDB Fehler:", err);
+    if (!db) throw new Error("Datenbank nicht bereit");
+    const items = await db.collection("media").find().toArray();
+
+    res.writeHead(200, {
+      "Content-Type": "application/json",
+      "Access-Control-Allow-Origin": "*",
+    });
+
+    res.end(JSON.stringify({ data: items }));
+  } catch (e) {
+    console.error("❌ GET Media Error:", e.message);
+    res.writeHead(500, { "Access-Control-Allow-Origin": "*" });
+    res.end(JSON.stringify({ error: e.message }));
   }
 }
 
-connectDB();
-
-// =====================================
-// MEDIA ITEMS API
-// =====================================
-
-// GET LIST
-/*
-async function handleGetMedia(res) {
-    const items = await db.collection("media").find().toArray();
-
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ data: items }));
-}
-*/
-async function handleGetMedia(res) {
-
-    try {
-
-        if (!db) {
-            console.log("DB noch nicht bereit");
-            res.writeHead(503);
-            res.end("DB not ready");
-            return;
-        }
-
-        const items = await db.collection("media").find().toArray();
-
-        res.writeHead(200, {
-            "Content-Type": "application/json",
-            "Access-Control-Allow-Origin": "*"
-        });
-
-        res.end(JSON.stringify({ data: items }));
-
-    } catch(err) {
-
-        console.error("GET MEDIA ERROR:");
-        console.error(err);
-
-        res.writeHead(500);
-        res.end("Server Error");
-    }
-}
-
-// POST SAVE
 async function handlePostMedia(req, res) {
+  let body = "";
+  req.on("data", (c) => (body += c));
 
-    let body = "";
+  req.on("end", async () => {
+    try {
+      if (!db) throw new Error("Datenbank nicht bereit");
+      const item = JSON.parse(body);
 
-    req.on("data", chunk => body += chunk);
+      const result = await db.collection("media").insertOne(item);
+      console.log("✅ Item in MongoDB gespeichert:", result.insertedId);
 
-    req.on("end", async () => {
-
-        try {
-
-            if (!db) {
-                console.log("DB noch nicht bereit");
-                res.writeHead(503);
-                res.end("DB not ready");
-                return;
-            }
-
-            const item = JSON.parse(body);
-
-            console.log("POST MEDIA RECEIVED:");
-            console.log(item);
-
-            const result =
-                await db.collection("media").insertOne(item);
-
-            res.writeHead(200, {
-                "Content-Type": "application/json",
-                "Access-Control-Allow-Origin": "*"
-            });
-
-            res.end(JSON.stringify({
-                ok: true,
-                id: result.insertedId
-            }));
-
-        } catch(err) {
-
-            console.error("POST MEDIA ERROR:");
-            console.error(err);
-
-            res.writeHead(500);
-            res.end("Server Error");
-        }
-    });
-}
-
-
-async function testInsert() {
-  const col = db.collection("test");
-  await col.insertOne({ hello: "world" });
-  console.log("✅ Test gespeichert");
-}
-
-setTimeout(testInsert, 3000);
-
-//const localOnly = true;
-const localOnly = false;
-// the port on which the server will be started
-//var port = 7077;
-var port = process.env.PORT || 7077;
-
-
-
-// this is for switching between the standard and the new theme mode for displaying the views
-let themes = false;
-
-var http = require("http");
-var https = require("https");
-var url = require("url");
-var fs = require("fs");
-// added as proposed by A. Zoellner in W2020 for solving video delivery issue for iOS
-var mime = require("mime");
-const { pipeline } = require("stream");
-
-var utils = require("./njsimpl/njsutils");
-
-//var http2mdb = require("./njsimpl/http2mdb");
-
-// the HTTP server
-var server;
-// the HTTPS server
-var httpsServer;
-// the ip address
-//var ip = localOnly ? "127.0.0.1" : utils.getIPAddress();
-var ip = "0.0.0.0";
-
-// the segment for identifying the rest api
-var apiref = "api";
-
-/****************************************************************************
- * adaptable settings
- ****************************************************************************/
-
-// settings for https
-var httpsEnabled = false;
-var localPassphrase = null;
-
-//const apiOnly = true;
-const apiOnly = false;
-// multitenant settings
-var multitenantsEnabled = false;
-
-if (multitenantsEnabled) {
-    console.log("\nSERVER RUNNING IN MULTITENANTS MODE -- PLACE TENANTS' APPLICATIONS IN www/<tenant-id> DIRECTORIES AND EDIT njsimpl/tenants.json\n");
-}
-
-//const numOfTenants = 10;
-
-!fs.existsSync('www/content') && fs.mkdirSync('www/content');
-!fs.existsSync('www/content/img') && fs.mkdirSync('www/content/img');
-!fs.existsSync('www/content/mov') && fs.mkdirSync('www/content/mov');
-
-/****************************************************************************
- * the top level request processing logic including handling of multitenancy
- ****************************************************************************/
-var application = function(req, res) {
-    var path = url.parse(req.url).pathname;
-    var origpath = path;
-
-    // MULTITENANT: as the availability check currently does not use a relative url but accesses /available, we need to handle requests here
-    if (path.indexOf("/available") == 0) {
-        console.log(".onHttpRequest(): received an availability request, respond with success");
-        res.writeHead(204);
-        res.end();
+      res.writeHead(200, {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*",
+      });
+      res.end(JSON.stringify({ ok: true, id: result.insertedId }));
+    } catch (e) {
+      console.error("❌ POST Media Error:", e.message);
+      res.writeHead(500, { 
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*" 
+      });
+      res.end(JSON.stringify({ error: "Insert Error", details: e.message }));
     }
-    else if (multitenantsEnabled
-        && (path == "/"
-            || path.startsWith("/css")
-            || path.startsWith("/js")
-            || path.startsWith("/lib")
-            || path.startsWith("/pwa"))) {
-        if (apiOnly) {
-            res.writeHead(404);
-            console.log("ERROR: Got request to resource which is not available in api only mode: " + path);
-            res.end();
-        }
-        else {
-            handleRequest(req,res,path);
-        }
-    }
-    else if (apiOnly
-        && (path == "/"
-            || path.startsWith("/css")
-            || path.startsWith("/js")
-            || path.startsWith("/lib")
-            || path.startsWith("/pwa"))) {
-        res.writeHead(404);
-        res.write("webserver is running in api only mode!")
-        console.log("ERROR: Got request to resource which is not available in api only mode: " + path);
-        res.end();
-    }
-
-    // content requests are currently handled via the default case, i.e. there we need to check multi tenancy as well
-    else if (multitenantsEnabled && (path.startsWith("/content") || path.startsWith("/api"))) {
-        console.log(".onHttpRequest(): we have an api or content request in multitenancy mode; try to provide tenant specific resource for path: ", path)
-        // MULTITENANT: cut the first segment of the path, which will be the tenant id
-        var segments = path.split("/");
-        var tenantId = segments[2];
-
-        // lookup the tenant id in a config file, which also allows us to output user-specific logs without disclosing the tenant ids
-        // note that currently we read the file for each request, which allows to do runtime updates
-        fs.readFile(__dirname + "/njsimpl/tenants.json", function (err, data) {
-            if (err) {
-                res.writeHead(500);
-                res.write("ERROR: The tenants configuration could not be found.");
-                res.end();
-            }
-            else {
-                console.log("try to find tenant for tenantid: ", tenantId);
-
-                // parse the file data and try to read out the tenant name
-                var tenants = JSON.parse(data);
-                var tenant = tenants[tenantId];
-
-                // check whether we have found a tenant name
-                if (!tenant) {
-                    res.writeHead(404);
-                    console.log("ERROR: Unknown tenant id: " + tenantId);
-                    res.end();
-                }
-                else {
-                    // we add the id to the object
-                    tenant.id = tenantId;
-                    tenant.origpath = origpath;
-
-                    // we replace the tenant segment in the path as from here onwards,
-                    // processing continues as usual with the tenant being an additional parameter
-                    path = utils.replaceWith(path,"/" + tenantId,"");
-                    console.log("using path without tenant for further processing: ", path);
-
-                    if (path == "") {
-                        // root requests to tenant's applications need to put a "/" at the end, otherwise relative urls will not include the necessary segment for the tenant id
-                        res.writeHead(400);
-                        res.write("ERROR: root requests to tenants' application need to put a '/' at the end!");
-                        res.end();
-                    }
-                    else {
-
-                        if (!path.startsWith("/")) {
-                            path = "/" + path;
-                        }
-                        // MULTITENANT: from here on, continue processing as before without multitenancy...
-                        handleRequest(req,res,path,tenant);
-                    }
-                }
-            }
-        });
-    }
-    else if (multitenantsEnabled) {
-        console.log(".onHttpRequest(): handle access to tenant-specific static resource: ", path);
-        // we check whether the first segment is a valid tenant id
-        const segments = path.split("/");
-        const tenantId = segments[1];
-        fs.readFile(__dirname + "/njsimpl/tenants.json", function (err, data) {
-            if (err) {
-                res.writeHead(500);
-                res.write("ERROR: The tenants configuration could not be found.");
-                res.end();
-            } else {
-                var tenants = JSON.parse(data);
-                var tenant = tenants[tenantId];
-
-                // if we have found a tenant, we deliver the resource
-                if (tenant) {
-                    handleRequest(req,res,path);
-                }
-                else {
-                    res.writeHead(404);
-                    console.log("ERROR: No valid tenant has been found for supposed tenant segment: ", tenantId);
-                    res.end();
-                }
-            }
-        });
-    }
-    else {
-        handleRequest(req,res,path);
-    }
-
-    // exception handling, see http://stackoverflow.com/questions/5999373/how-do-i-prevent-node-js-from-crashing-try-catch-doesnt-work
-    process.on("uncaughtException", function (error) {
-        if (res.headersSent) {
-            console.log(".onHttpRequest(): got exception, but response has already been sent. Do not do anything...");
-        }
-        else {
-            console.log("onHttpRequest(): got an uncaught exception!");
-            console.log(error.stack);
-            console.log(".onHttpRequest(): finishing response on exception...");
-            res.writeHead(500);
-            res.end();
-        }
-    });
-
-    // don't limit the amount of event listeners
-    process.setMaxListeners(0);
-
-};
-
-/***********************************************************************************
- * main request handling branching between api request and static resource requests
- ***********************************************************************************/
-function handleRequest(req, res, path, tenant) {
-
-    console.log(".onHttpRequest(): trying to serve path:", path);
-
-    // =====================================================
-    // ✅ CUSTOM CLOUD API — PRIORITY ROUTING
-    // =====================================================
-    if (path.startsWith("/api/mediaitems")) {
-
-        if (req.method === "GET") {
-            handleGetMedia(res);
-            return;
-        }
-
-        if (req.method === "POST") {
-            handlePostMedia(req, res);
-            return;
-        }
-
-        // Methode nicht erlaubt
-        res.writeHead(405);
-        res.end();
-        return;
-    }
-
-
-    // =====================================================
-    // ❌ http2mdb KOMPLETT DEAKTIVIERT
-    // (NICHT WIEDER EINFÜGEN)
-    // =====================================================
-
-
-    // =====================================================
-    // STATIC FILE DELIVERY
-    // =====================================================
-
-    if (path === "/") {
-        path = themes ? "app-with-theme.html" : "app.html";
-    } else {
-        path = decodeURI(path);
-    }
-
-    // Uploaded Content
-    if (path.startsWith("/content")) {
-        serveUploadedContent(req, res, path, tenant);
-        return;
-    }
-
-    // Normale statische Dateien
-    serveStaticResource(req, res, path, tenant);
-}
-
-
-
-function serveUploadedContent(req,res,path,tenant) {
-    console.log((tenant ? tenant.name : "") + ".onHttpRequest(): serve uploaded content: " + path);
-    doServeStaticResource(req,res,path,tenant);
-}
-
-// MULTITENANT: provide an alternative implementation of this function if tenants' applications are not provided via the local filesystem, but, e.g., via an external file server
-function serveStaticResource(req,res,path,tenant) {
-    doServeStaticResource(req,res,path,tenant);
-}
-
-function doServeStaticResource(req,res,path,tenant) {
-// serveable resources will be put in the webcontent directory -- the callback will be passed the data read out from the file being accessed
-// MULTITENANT: we will serve the resources from the tenant's subdirectory within the www webspace or directly from there if multitenancy is not enabled
-// added partial delivery, used for videos, as proposed by A. Zoellner
-
-  /** Calculate Size of file */
-  fs.stat(__dirname + "/www/" + (tenant ? tenant.id + "/" : "") +path,(err,stats) => {
-      if (err) {
-          console.error((tenant ? tenant.name : "") + ".onHttpRequest(): ERROR: cannot access file: " + path);
-          res.writeHead(404);
-          res.write("ERROR: resource not found: " + (tenant ? tenant.origpath : path));
-          res.end();
-      }
-      else {
-          const size = stats.size;
-          const range = req.headers.range;
-
-          /** Check for Range header */
-          if (range) {
-              /** Extracting Start and End value from Range Header */
-              let [start, end] = range.replace(/bytes=/, "").split("-");
-              start = parseInt(start, 10);
-              end = end ? parseInt(end, 10) : size - 1;
-
-              if (!isNaN(start) && isNaN(end)) {
-                  start = start;
-                  end = size - 1;
-              }
-              if (isNaN(start) && !isNaN(end)) {
-                  start = size - end;
-                  end = size - 1;
-              }
-
-              // Handle unavailable range request
-              if (start >= size || end >= size) {
-                  // Return the 416 Range Not Satisfiable.
-                  res.writeHead(416, {
-                      "Content-Range": `bytes */${size}`
-                  });
-                  return res.end();
-              }
-
-              /** Sending Partial Content With HTTP Code 206 */
-              res.writeHead(206, {
-                  "Content-Range": `bytes ${start}-${end}/${size}`,
-                  "Accept-Ranges": "bytes",
-                  "Content-Length": end - start + 1,
-                  "Content-Type": contentType(path)
-              });
-              console.log('serving ' + `bytes ${start}-${end}/${size}`);
-
-              let readable = fs.createReadStream(__dirname + "/www/" + (tenant ? tenant.id + "/" : "") + path, {start: start, end: end});
-              pipeline(readable, res, err => {
-                  if (err) {
-                      console.log('error: ' + err);
-                  }
-              });
-          } else {
-              fs.readFile(__dirname + "/www/" + (tenant ? tenant.id + "/" : "") + path, function (err, data) {
-                  // check whether we have got an error retrieving the resource: create a 404 error, assuming that a wrong uri was used
-                  if (err) {
-                      console.error((tenant ? tenant.name : "") + ".onHttpRequest(): ERROR: cannot find file: " + path);
-                      res.writeHead(404);
-                      res.write("ERROR: resource not found: " + (tenant ? tenant.origpath : path));
-                      res.end();
-                  }
-                  // otherwise create a 200 response and set the content type header
-                  else {
-                      res.writeHead(200, {
-                          'Content-Type': contentType(path)
-                      });
-                      res.write(data, 'utf8');
-                      res.end();
-                  }
-              });
-          }
-      }
   });
 }
 
+// ===============================
+// SERVER SETTINGS & STATIC
+// ===============================
+const port = process.env.PORT || 7077;
+const ip = "0.0.0.0";
 
-/***********************************************************************************
- * start the server
- ***********************************************************************************/
-server = http.createServer(application);
-// let the server listen on the given port
-server.listen(port, ip);
-console.log("HTTP server running at http://" + ip + ":" + port);
+// Ordner sicherstellen
+if (!fs.existsSync("www/content/img")) fs.mkdirSync("www/content/img", { recursive: true });
+if (!fs.existsSync("www/content/mov")) fs.mkdirSync("www/content/mov", { recursive: true });
 
-// providing https access (e.g. for testing service workers), following https://aghassi.github.io/ssl-using-express-4/
-if (httpsEnabled) {
+function application(req, res) {
+  let path = url.parse(req.url).pathname;
 
-// this might no be the most elegant solution to avoid the event emitter error message..., see http://stackoverflow.com/questions/9768444/possible-eventemitter-memory-leak-detected
-// here, we set the credentials
-    var key = fs.readFileSync("njsimpl/https.key").toString();
-    var cert = fs.readFileSync("njsimpl/https.cert").toString();
+  // CORS Preflight
+  if (req.method === "OPTIONS") {
+    res.writeHead(200, {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type",
+    });
+    res.end();
+    return;
+  }
 
-    if (!localPassphrase) {
-        console.error("For serving the application via HTTPS you need to specify your local passphrase for accessing the SSL certificates! Use 'NONE' if no passphrase is required.");
-        return;
+  // API Routing
+  if (path === "/api/mediaitems") {
+    if (req.method === "GET") return handleGetMedia(res);
+    if (req.method === "POST") return handlePostMedia(req, res);
+  }
+
+  // Upload Endpoint (njsimpl)
+  if (path.startsWith("/api/upload")) {
+    try {
+      return require("./njsimpl/http2mdb")
+        .CRUDImpl()
+        .processRequest(req, res, "api", "upload");
+    } catch (e) {
+      res.writeHead(500);
+      res.end("Upload Module Missing");
+      return;
     }
+  }
 
-    var sslOptions = (localPassphrase == "NONE") ? {key: key, cert: cert} : {
-        key: key,
-        cert: cert,
-        passphrase: localPassphrase
-    };
-
-    // the following way, i.e. creating a credentials object and passing it as sslOptions does not work! Will result in SSL_ERROR_NO_CYPHER_OVERLAP error when accessing application
-    // var credentials = tls.createSecureContext(sslOptions);
-    // console.log("created credentials: " + credentials);// + ", using key: " + key + ", cert: " + cert);
-    httpsServer = https.createServer(sslOptions, application);
-
-    var iphttps = ip;
-    httpsServer.listen(port + 1, iphttps);
-    console.log("HTTPS server running at https://" + iphttps + ":" + (port + 1));
-
+  // Statische Dateien
+  if (path === "/") path = "/app.html";
+  serveFile(req, res, path);
 }
 
-/***********************************************************************************
- * helper method for contentType assignment based on file extension
- ***********************************************************************************/
-function contentType(path) {
-    return mime.getType(path);
+function serveFile(req, res, path) {
+  const file = __dirname + "/www" + decodeURI(path);
+  fs.stat(file, (err, stats) => {
+    if (err) {
+      res.writeHead(404);
+      res.end();
+      return;
+    }
+    const size = stats.size;
+    const range = req.headers.range;
+
+    if (range) {
+      let [start, end] = range.replace(/bytes=/, "").split("-");
+      start = parseInt(start, 10);
+      end = end ? parseInt(end, 10) : size - 1;
+      res.writeHead(206, {
+        "Content-Range": `bytes ${start}-${end}/${size}`,
+        "Accept-Ranges": "bytes",
+        "Content-Length": end - start + 1,
+        "Content-Type": mime.getType(path),
+      });
+      pipeline(fs.createReadStream(file, { start, end }), res, () => {});
+    } else {
+      res.writeHead(200, { "Content-Type": mime.getType(path) });
+      fs.createReadStream(file).pipe(res);
+    }
+  });
 }
 
+// ===============================
+// START-SEQUENZ (WICHTIG)
+// ===============================
+async function start() {
+  try {
+    console.log("⏳ Verbinde mit MongoDB...");
+    await client.connect();
+    db = client.db("mediaapp");
+    console.log("✅ MongoDB verbunden");
+
+    http.createServer(application).listen(port, ip, () => {
+      console.log(`🚀 Server aktiv auf http://${ip}:${port}`);
+    });
+  } catch (e) {
+    console.error("❌ Server-Start fehlgeschlagen:", e);
+    process.exit(1);
+  }
+}
+
+start();
