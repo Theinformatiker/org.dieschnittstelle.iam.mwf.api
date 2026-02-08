@@ -36,16 +36,32 @@ async function handleGetMedia(res) {
 }
 */
 async function handleGetMedia(res) {
+
     try {
+
+        if (!db) {
+            console.log("DB noch nicht bereit");
+            res.writeHead(503);
+            res.end("DB not ready");
+            return;
+        }
+
         const items = await db.collection("media").find().toArray();
 
-        res.writeHead(200, { "Content-Type": "application/json" });
+        res.writeHead(200, {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*"
+        });
+
         res.end(JSON.stringify({ data: items }));
 
     } catch(err) {
+
+        console.error("GET MEDIA ERROR:");
         console.error(err);
+
         res.writeHead(500);
-        res.end("DB Error");
+        res.end("Server Error");
     }
 }
 
@@ -54,31 +70,40 @@ async function handlePostMedia(req, res) {
 
     let body = "";
 
-    req.on("data", chunk => {
-        body += chunk;
-    });
+    req.on("data", chunk => body += chunk);
 
     req.on("end", async () => {
 
         try {
 
             if (!db) {
-                throw new Error("DB not ready");
+                console.log("DB noch nicht bereit");
+                res.writeHead(503);
+                res.end("DB not ready");
+                return;
             }
 
             const item = JSON.parse(body);
 
-            const result = await db.collection("media").insertOne(item);
+            console.log("POST MEDIA RECEIVED:");
+            console.log(item);
 
-            res.writeHead(200, { "Content-Type": "application/json" });
+            const result =
+                await db.collection("media").insertOne(item);
+
+            res.writeHead(200, {
+                "Content-Type": "application/json",
+                "Access-Control-Allow-Origin": "*"
+            });
+
             res.end(JSON.stringify({
-                status: "saved",
+                ok: true,
                 id: result.insertedId
             }));
 
         } catch(err) {
 
-            console.error("❌ POST MEDIA ERROR:");
+            console.error("POST MEDIA ERROR:");
             console.error(err);
 
             res.writeHead(500);
