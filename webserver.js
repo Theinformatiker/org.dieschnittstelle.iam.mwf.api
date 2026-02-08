@@ -1,14 +1,13 @@
 /*
- * FINAL CLOUD VERSION — Upload integriert, njsimpl entfernt
+ * FINAL VERSION 2 — Mit DELETE-Funktion & Modernem URL-Parser
  */
 
 const { MongoClient } = require("mongodb");
 const http = require("http");
-const url = require("url");
 const fs = require("fs");
 const pathStr = require("path");
 const mime = require("mime");
-const formidable = require("formidable"); // Nutzen wir jetzt direkt
+const formidable = require("formidable");
 const { pipeline } = require("stream");
 
 // ===============================
@@ -21,6 +20,8 @@ let db;
 // ===============================
 // MEDIA API (METADATEN)
 // ===============================
+
+// 1. GET (Laden)
 async function handleGetMedia(res) {
   try {
     if (!db) throw new Error("Datenbankverbindung fehlt");
@@ -28,12 +29,12 @@ async function handleGetMedia(res) {
     res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
     res.end(JSON.stringify({ data: items }));
   } catch (e) {
-    console.error("❌ GET Fehler:", e.message);
     res.writeHead(500, { "Access-Control-Allow-Origin": "*" });
     res.end(JSON.stringify({ error: e.message }));
   }
 }
 
+// 2. POST (Speichern/Update)
 async function handlePostMedia(req, res) {
   let body = "";
   req.on("data", (c) => (body += c));
@@ -42,84 +43,91 @@ async function handlePostMedia(req, res) {
       if (!db) throw new Error("Datenbankverbindung fehlt");
       const item = JSON.parse(body);
 
-      // 🛠️ FIX: Duplikate verhindern!
-      // Wir suchen nach dem Eintrag mit derselben Bild-URL ('src').
+      // Upsert: Aktualisieren oder Neu anlegen
       const filter = { src: item.src };
-      
-      // Wir aktualisieren die Daten ($set)
       const updateDoc = { $set: item };
+      await db.collection("media").updateOne(filter, updateDoc, { upsert: true });
       
-      // upsert: true bedeutet: Update wenn gefunden, sonst Insert (Neu anlegen)
-      const result = await db.collection("media").updateOne(filter, updateDoc, { upsert: true });
-      
-      console.log("✅ Metadaten aktualisiert/gespeichert");
-      
+      console.log("✅ Metadaten gespeichert/aktualisiert");
       res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
       res.end(JSON.stringify({ ok: true }));
-
     } catch (e) {
       console.error("❌ POST Fehler:", e.message);
-      res.writeHead(500, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
+      res.writeHead(500, { "Access-Control-Allow-Origin": "*" });
       res.end(JSON.stringify({ error: e.message }));
     }
   });
 }
 
+// 3. DELETE (Löschen) - NEU!
+async function handleDeleteMedia(req, res) {
+    try {
+        if (!db) throw new Error("Datenbankverbindung fehlt");
+        
+        // URL parsen, um den Parameter ?src=... zu bekommen
+        const currentUrl = new URL(req.url, `http://${req.headers.host}`);
+        const targetSrc = currentUrl.searchParams.get("src");
+
+        if (!targetSrc) {
+            console.log("⚠️ Delete abgelehnt: Keine src angegeben");
+            res.writeHead(400, { "Access-Control-Allow-Origin": "*" });
+            res.end(JSON.stringify({ error: "Parameter 'src' fehlt" }));
+            return;
+        }
+
+        console.log("🗑️ Lösche Eintrag:", targetSrc);
+        const result = await db.collection("media").deleteMany({ src: targetSrc });
+
+        res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
+        res.end(JSON.stringify({ ok: true, deleted: result.deletedCount }));
+    } catch (e) {
+        console.error("❌ DELETE Fehler:", e.message);
+        res.writeHead(500, { "Access-Control-Allow-Origin": "*" });
+        res.end(JSON.stringify({ error: e.message }));
+    }
+}
+
 // ===============================
-// UPLOAD HANDLER (NEU & FIX)
+// UPLOAD HANDLER
 // ===============================
 function handleUpload(req, res) {
     const form = new formidable.IncomingForm();
     form.uploadDir = pathStr.join(__dirname, "www", "content", "img");
     form.keepExtensions = true;
 
-    // Sicherstellen, dass Ordner existiert
     if (!fs.existsSync(form.uploadDir)) {
         fs.mkdirSync(form.uploadDir, { recursive: true });
     }
 
     form.parse(req, (err, fields, files) => {
         if (err) {
-            console.error("❌ Upload Fehler:", err);
             res.writeHead(500, { "Access-Control-Allow-Origin": "*" });
             res.end("Upload Error");
             return;
         }
-
-        // Formidable v1 packt die Datei oft in 'filedata' oder 'files'
-        // Wir suchen das erste File-Objekt
         const fileObj = files.filedata || Object.values(files)[0];
-
         if (!fileObj) {
             res.writeHead(400, { "Access-Control-Allow-Origin": "*" });
             res.end("No file uploaded");
             return;
         }
-
-        // Dateinamen bereinigen und Pfad erstellen
         const oldPath = fileObj.path;
         const newFilename = Date.now() + "_" + fileObj.name.replace(/\s+/g, "_");
         const newPath = pathStr.join(form.uploadDir, newFilename);
 
-        // Datei umbenennen (verschieben)
         fs.rename(oldPath, newPath, (err) => {
             if (err) {
-                console.error("❌ Rename Fehler:", err);
                 res.writeHead(500);
                 res.end("Save Error");
                 return;
             }
-
             console.log("✅ Bild hochgeladen:", newFilename);
-
-            // Antwort im Format, das deine App erwartet
             const responseData = {
                 data: {
                     filedata: `content/img/${newFilename}`,
                     contentType: fileObj.type
                 }
             };
-
             res.writeHead(200, { 
                 "Content-Type": "application/json",
                 "Access-Control-Allow-Origin": "*" 
@@ -136,36 +144,38 @@ const port = process.env.PORT || 7077;
 const ip = "0.0.0.0";
 
 function application(req, res) {
-  let path = url.parse(req.url).pathname;
-
   // CORS Preflight
   if (req.method === "OPTIONS") {
     res.writeHead(200, {
       "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+      "Access-Control-Allow-Methods": "GET,POST,DELETE,OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type",
     });
     res.end();
     return;
   }
 
-  // 1. API: Metadaten (MongoDB)
-  if (path === "/api/mediaitems") {
+  // Pfad extrahieren
+  const reqUrl = new URL(req.url, `http://${req.headers.host}`);
+  const pathname = reqUrl.pathname;
+
+  // 1. API: Metadaten
+  if (pathname === "/api/mediaitems") {
     if (req.method === "GET") return handleGetMedia(res);
     if (req.method === "POST") return handlePostMedia(req, res);
+    if (req.method === "DELETE") return handleDeleteMedia(req, res); // <--- NEU
   }
 
-  // 2. API: Upload (Lokal im Container, ohne DB-Zwang)
-  if (path.startsWith("/api/upload")) {
+  // 2. API: Upload
+  if (pathname.startsWith("/api/upload")) {
     return handleUpload(req, res);
   }
 
   // 3. Statische Dateien
-  if (path === "/") path = "/app.html";
-  serveFile(req, res, path);
+  let staticPath = pathname === "/" ? "/app.html" : pathname;
+  serveFile(req, res, staticPath);
 }
 
-// Statische Dateien ausliefern
 function serveFile(req, res, path) {
   const file = __dirname + "/www" + decodeURI(path);
   fs.stat(file, (err, stats) => {
