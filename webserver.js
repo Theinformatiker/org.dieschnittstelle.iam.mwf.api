@@ -34,7 +34,7 @@ async function handleGetMedia(res) {
   }
 }
 
-aasync function handlePostMedia(req, res) {
+async function handlePostMedia(req, res) {
   let body = "";
   req.on("data", (c) => (body += c));
   req.on("end", async () => {
