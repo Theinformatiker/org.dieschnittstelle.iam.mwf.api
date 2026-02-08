@@ -1,10 +1,14 @@
 {
   "name": "org.dieschnittstelle.iam.mwf.api",
   "version": "1.0.0",
-  "description": "",
+  "description": "Media App API Server",
   "main": "webserver.js",
   "scripts": {
+    "start": "node webserver.js",
     "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "engines": {
+    "node": ">=16.0.0"
   },
   "repository": {
     "type": "git",
