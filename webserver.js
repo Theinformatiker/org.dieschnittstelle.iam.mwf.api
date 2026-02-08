@@ -54,18 +54,39 @@ async function handlePostMedia(req, res) {
 
     let body = "";
 
-    req.on("data", chunk => body += chunk);
+    req.on("data", chunk => {
+        body += chunk;
+    });
 
     req.on("end", async () => {
 
-        const item = JSON.parse(body);
+        try {
 
-        await db.collection("media").insertOne(item);
+            if (!db) {
+                throw new Error("DB not ready");
+            }
 
-        res.writeHead(200);
-        res.end("OK");
+            const item = JSON.parse(body);
+
+            const result = await db.collection("media").insertOne(item);
+
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({
+                status: "saved",
+                id: result.insertedId
+            }));
+
+        } catch(err) {
+
+            console.error("❌ POST MEDIA ERROR:");
+            console.error(err);
+
+            res.writeHead(500);
+            res.end("Server Error");
+        }
     });
 }
+
 
 async function testInsert() {
   const col = db.collection("test");
