@@ -96,7 +96,7 @@ const { pipeline } = require("stream");
 
 var utils = require("./njsimpl/njsutils");
 
-var http2mdb = require("./njsimpl/http2mdb");
+//var http2mdb = require("./njsimpl/http2mdb");
 
 // the HTTP server
 var server;
