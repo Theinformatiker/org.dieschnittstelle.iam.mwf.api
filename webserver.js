@@ -1,225 +1,156 @@
 /*
- * FINAL VERSION 2 — Mit DELETE-Funktion & Modernem URL-Parser
+ * SERVER: Express + MongoDB Atlas
+ * Passt perfekt zur Flet-App (REST API)
  */
 
-const { MongoClient } = require("mongodb");
-const http = require("http");
-const fs = require("fs");
-const pathStr = require("path");
-const mime = require("mime");
-const formidable = require("formidable");
-const { pipeline } = require("stream");
+const express = require('express');
+const cors = require('cors');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+const { MongoClient } = require('mongodb');
+const { v4: uuidv4 } = require('uuid');
 
-// ===============================
-// MongoDB Cloud Config
-// ===============================
-const uri = process.env.MONGO_URI || "mongodb+srv://mediauser:mediauser123@cluster0.m8qxa.mongodb.net/?retryWrites=true&w=majority";
-const client = new MongoClient(uri);
+// --- Konfiguration ---
+const app = express();
+const PORT = process.env.PORT || 3000;
+const UPLOAD_DIR = path.join(__dirname, 'content', 'img');
+
+// ⚠️ DEIN MONGODB STRING HIER EINTRAGEN:
+const MONGO_URI = "mongodb+srv://mediauser:mediauser123@cluster0.m8qxa.mongodb.net/?retryWrites=true&w=majority";
+const DB_NAME = "mediaapp";
+const COLLECTION = "media";
+
+// --- Middleware ---
+app.use(cors());
+app.use(express.json()); // Wichtig für JSON Body
+app.use('/content/img', express.static(UPLOAD_DIR)); // Bilder ausliefern
+
+// --- Upload Vorbereitung ---
+if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => cb(null, UPLOAD_DIR),
+    filename: (req, file, cb) => cb(null, Date.now() + '_' + file.originalname.replace(/\s+/g, '_'))
+});
+const upload = multer({ storage: storage });
+
+// --- MongoDB Verbindung ---
 let db;
+let collection;
 
-// ===============================
-// MEDIA API (METADATEN)
-// ===============================
-
-// 1. GET (Laden)
-async function handleGetMedia(res) {
-  try {
-    if (!db) throw new Error("Datenbankverbindung fehlt");
-    const items = await db.collection("media").find().toArray();
-    res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
-    res.end(JSON.stringify({ data: items }));
-  } catch (e) {
-    res.writeHead(500, { "Access-Control-Allow-Origin": "*" });
-    res.end(JSON.stringify({ error: e.message }));
-  }
-}
-
-// 2. POST (Speichern/Update)
-async function handlePostMedia(req, res) {
-  let body = "";
-  req.on("data", (c) => (body += c));
-  req.on("end", async () => {
+async function startServer() {
     try {
-      if (!db) throw new Error("Datenbankverbindung fehlt");
-      const item = JSON.parse(body);
+        const client = new MongoClient(MONGO_URI);
+        await client.connect();
+        db = client.db(DB_NAME);
+        collection = db.collection(COLLECTION);
+        console.log("✅ Mit MongoDB Atlas verbunden");
 
-      // Upsert: Aktualisieren oder Neu anlegen
-      const filter = { src: item.src };
-      const updateDoc = { $set: item };
-      await db.collection("media").updateOne(filter, updateDoc, { upsert: true });
-      
-      console.log("✅ Metadaten gespeichert/aktualisiert");
-      res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
-      res.end(JSON.stringify({ ok: true }));
-    } catch (e) {
-      console.error("❌ POST Fehler:", e.message);
-      res.writeHead(500, { "Access-Control-Allow-Origin": "*" });
-      res.end(JSON.stringify({ error: e.message }));
-    }
-  });
-}
+        // --- ROUTES ---
 
-// 3. DELETE (Löschen) - NEU!
-async function handleDeleteMedia(req, res) {
-    try {
-        if (!db) throw new Error("Datenbankverbindung fehlt");
-        
-        // URL parsen, um den Parameter ?src=... zu bekommen
-        const currentUrl = new URL(req.url, `http://${req.headers.host}`);
-        const targetSrc = currentUrl.searchParams.get("src");
-
-        if (!targetSrc) {
-            console.log("⚠️ Delete abgelehnt: Keine src angegeben");
-            res.writeHead(400, { "Access-Control-Allow-Origin": "*" });
-            res.end(JSON.stringify({ error: "Parameter 'src' fehlt" }));
-            return;
-        }
-
-        console.log("🗑️ Lösche Eintrag:", targetSrc);
-        const result = await db.collection("media").deleteMany({ src: targetSrc });
-
-        res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
-        res.end(JSON.stringify({ ok: true, deleted: result.deletedCount }));
-    } catch (e) {
-        console.error("❌ DELETE Fehler:", e.message);
-        res.writeHead(500, { "Access-Control-Allow-Origin": "*" });
-        res.end(JSON.stringify({ error: e.message }));
-    }
-}
-
-// ===============================
-// UPLOAD HANDLER
-// ===============================
-function handleUpload(req, res) {
-    const form = new formidable.IncomingForm();
-    form.uploadDir = pathStr.join(__dirname, "www", "content", "img");
-    form.keepExtensions = true;
-
-    if (!fs.existsSync(form.uploadDir)) {
-        fs.mkdirSync(form.uploadDir, { recursive: true });
-    }
-
-    form.parse(req, (err, fields, files) => {
-        if (err) {
-            res.writeHead(500, { "Access-Control-Allow-Origin": "*" });
-            res.end("Upload Error");
-            return;
-        }
-        const fileObj = files.filedata || Object.values(files)[0];
-        if (!fileObj) {
-            res.writeHead(400, { "Access-Control-Allow-Origin": "*" });
-            res.end("No file uploaded");
-            return;
-        }
-        const oldPath = fileObj.path;
-        const newFilename = Date.now() + "_" + fileObj.name.replace(/\s+/g, "_");
-        const newPath = pathStr.join(form.uploadDir, newFilename);
-
-        fs.rename(oldPath, newPath, (err) => {
-            if (err) {
-                res.writeHead(500);
-                res.end("Save Error");
-                return;
+        // 1. GET: Alle laden
+        app.get('/api/mediaitems', async (req, res) => {
+            try {
+                const items = await collection.find().toArray();
+                // _id von Mongo entfernen/umwandeln, damit es sauber bleibt (optional)
+                const cleanItems = items.map(item => {
+                    const { _id, ...rest } = item; 
+                    return rest;
+                });
+                res.json({ data: cleanItems });
+            } catch (e) {
+                res.status(500).json({ error: e.message });
             }
-            console.log("✅ Bild hochgeladen:", newFilename);
-            const responseData = {
-                data: {
-                    filedata: `content/img/${newFilename}`,
-                    contentType: fileObj.type
-                }
-            };
-            res.writeHead(200, { 
-                "Content-Type": "application/json",
-                "Access-Control-Allow-Origin": "*" 
-            });
-            res.end(JSON.stringify(responseData));
         });
-    });
-}
 
-// ===============================
-// MAIN SERVER ROUTING
-// ===============================
-const port = process.env.PORT || 7077;
-const ip = "0.0.0.0";
+        // 2. POST: Neu erstellen (Server macht die ID)
+        app.post('/api/mediaitems', async (req, res) => {
+            try {
+                const newItem = req.body;
+                newItem.id = uuidv4(); // Sichere ID generieren
+                
+                // Koordinaten sicherstellen
+                newItem.lat = newItem.lat || null;
+                newItem.lon = newItem.lon || null;
 
-function application(req, res) {
-  // CORS Preflight
-  if (req.method === "OPTIONS") {
-    res.writeHead(200, {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET,POST,DELETE,OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
-    });
-    res.end();
-    return;
-  }
+                await collection.insertOne(newItem);
+                console.log(`✅ MongoDB Insert: ${newItem.title}`);
+                res.json(newItem);
+            } catch (e) {
+                res.status(500).json({ error: e.message });
+            }
+        });
 
-  // Pfad extrahieren
-  const reqUrl = new URL(req.url, `http://${req.headers.host}`);
-  const pathname = reqUrl.pathname;
+        // 3. PUT: Update per ID (WICHTIG für deine App!)
+        app.put('/api/mediaitems/:id', async (req, res) => {
+            try {
+                const id = req.params.id;
+                const updateData = req.body;
+                
+                // Sicherheit: ID im Body darf ID in URL nicht überschreiben
+                updateData.id = id; 
+                // _id darf man nicht manuell updaten, also weg damit falls vorhanden
+                delete updateData._id; 
 
-  // 1. API: Metadaten
-  if (pathname === "/api/mediaitems") {
-    if (req.method === "GET") return handleGetMedia(res);
-    if (req.method === "POST") return handlePostMedia(req, res);
-    if (req.method === "DELETE") return handleDeleteMedia(req, res); // <--- NEU
-  }
+                const result = await collection.updateOne(
+                    { id: id }, 
+                    { $set: updateData }
+                );
 
-  // 2. API: Upload
-  if (pathname.startsWith("/api/upload")) {
-    return handleUpload(req, res);
-  }
+                if (result.matchedCount > 0) {
+                    console.log(`🔄 MongoDB Update: ${id}`);
+                    res.json({ ok: true });
+                } else {
+                    res.status(404).json({ error: "Item not found" });
+                }
+            } catch (e) {
+                console.error(e);
+                res.status(500).json({ error: e.message });
+            }
+        });
 
-  // 3. Statische Dateien
-  let staticPath = pathname === "/" ? "/app.html" : pathname;
-  serveFile(req, res, staticPath);
-}
+        // 4. DELETE: Löschen per src
+        app.delete('/api/mediaitems', async (req, res) => {
+            try {
+                const src = req.query.src;
+                if (!src) return res.status(400).json({ error: "src param missing" });
 
-function serveFile(req, res, path) {
-  const file = __dirname + "/www" + decodeURI(path);
-  fs.stat(file, (err, stats) => {
-    if (err) {
-      res.writeHead(404);
-      res.end();
-      return;
+                const result = await collection.deleteMany({ src: src });
+                
+                // Optional: Datei von Platte löschen
+                try {
+                    const filename = path.basename(src);
+                    const filepath = path.join(UPLOAD_DIR, filename);
+                    if (fs.existsSync(filepath)) fs.unlinkSync(filepath);
+                } catch(err) { console.log("Datei konnte nicht gelöscht werden (egal)"); }
+
+                console.log(`🗑️ Deleted ${result.deletedCount} items.`);
+                res.json({ deleted: result.deletedCount });
+            } catch (e) {
+                res.status(500).json({ error: e.message });
+            }
+        });
+
+        // 5. UPLOAD
+        app.post('/api/upload', upload.single('filedata'), (req, res) => {
+            if (!req.file) return res.status(400).json({ error: 'No file' });
+            res.json({
+                data: {
+                    filedata: `content/img/${req.file.filename}`,
+                    contentType: req.file.mimetype
+                }
+            });
+        });
+
+        // Server starten
+        app.listen(PORT, () => {
+            console.log(`🚀 Server läuft auf Port ${PORT}`);
+        });
+
+    } catch (e) {
+        console.error("❌ DB Fehler:", e);
     }
-    const range = req.headers.range;
-    if (range) {
-      const parts = range.replace(/bytes=/, "").split("-");
-      const start = parseInt(parts[0], 10);
-      const end = parts[1] ? parseInt(parts[1], 10) : stats.size - 1;
-      res.writeHead(206, {
-        "Content-Range": `bytes ${start}-${end}/${stats.size}`,
-        "Accept-Ranges": "bytes",
-        "Content-Length": end - start + 1,
-        "Content-Type": mime.getType(path),
-      });
-      pipeline(fs.createReadStream(file, { start, end }), res, () => {});
-    } else {
-      res.writeHead(200, { "Content-Type": mime.getType(path) });
-      fs.createReadStream(file).pipe(res);
-    }
-  });
 }
 
-// ===============================
-// START
-// ===============================
-async function run() {
-  try {
-    console.log("⏳ Verbinde mit MongoDB Atlas...");
-    await client.connect();
-    db = client.db("mediaapp");
-    console.log("✅ Datenbank bereit");
-
-    http.createServer(application).listen(port, ip, () => {
-      console.log(`🚀 Server läuft auf Port ${port}`);
-    });
-  } catch (e) {
-    console.error("❌ Kritischer Startfehler:", e);
-    process.exit(1);
-  }
-}
-
-run();
+startServer();
