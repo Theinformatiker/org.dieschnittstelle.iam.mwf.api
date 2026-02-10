@@ -16,9 +16,13 @@
   },
   "private": true,
   "dependencies": {
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
     "formidable": "^1.0.14",
     "mime": "^3.0.0",
     "mongodb": "^4.17.2",
-    "node-fetch": "^2.6.1"
+    "multer": "^2.0.2",
+    "node-fetch": "^2.6.1",
+    "uuid": "^13.0.0"
   }
 }
